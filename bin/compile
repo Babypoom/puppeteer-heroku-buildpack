@@ -131,8 +131,23 @@ esac
 APT_OPTIONS="-o debug::nolocking=true -o dir::cache=$APT_CACHE_DIR -o dir::state=$APT_STATE_DIR"
 APT_FLAGS="--allow-downgrades --allow-remove-essential --allow-change-held-packages"
 
-topic "Updating apt caches"
-apt-get $APT_OPTIONS update | indent
+# --- Nettoyage des sources APT problématiques (ex: apt.postgresql.org) ---
+topic "Cleaning up problematic APT sources (apt.postgresql.org)"
+rm -f /etc/apt/sources.list.d/pgdg.list 2>/dev/null || true
+sed -i '/apt\.postgresql\.org/d' /etc/apt/sources.list 2>/dev/null || true
+if [ -d /etc/apt/sources.list.d ]; then
+  for f in /etc/apt/sources.list.d/*.list; do
+    [ -f "$f" ] && sed -i '/apt\.postgresql\.org/d' "$f" || true
+  done
+fi
+
+# --- Mise à jour skippable du cache APT ---
+if [ "${PUPPETEER_SKIP_APT_UPDATE:-}" = "1" ]; then
+  topic "Skipping apt cache update (PUPPETEER_SKIP_APT_UPDATE=1)"
+else
+  topic "Updating apt caches"
+  apt-get $APT_OPTIONS update | indent
+fi
 
 for PACKAGE in $PACKAGES; do
   if [[ $PACKAGE == *deb ]]; then
@@ -159,7 +174,7 @@ mkdir -p $BUILD_DIR/.profile.d
 cat <<EOF >$BUILD_DIR/.profile.d/puppeteer.sh
 export LD_LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$LD_LIBRARY_PATH"
 export LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$LIBRARY_PATH"
-export INCLUDE_PATH="\$HOME/.apt/usr/include:\$HOME/.apt/usr/include/x86_64-linux-gnu:\$INCLUDE_PATH"
+export INCLUDE_PATH="\$HOME/.apt/usr/include:\$INCLUDE_PATH"
 export CPATH="\$INCLUDE_PATH"
 export CPPPATH="\$INCLUDE_PATH"
 export PKG_CONFIG_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu/pkgconfig:\$HOME/.apt/usr/lib/i386-linux-gnu/pkgconfig:\$HOME/.apt/usr/lib/pkgconfig:\$PKG_CONFIG_PATH"
@@ -167,12 +182,12 @@ EOF
 
 export LD_LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib:$LD_LIBRARY_PATH"
 export LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib:$LIBRARY_PATH"
-export INCLUDE_PATH="$BUILD_DIR/.apt/usr/include:$BUILD_DIR/.apt/usr/include/x86_64-linux-gnu:$INCLUDE_PATH"
+export INCLUDE_PATH="$BUILD_DIR/.apt/usr/include:$INCLUDE_PATH"
 export CPATH="$INCLUDE_PATH"
 export CPPPATH="$INCLUDE_PATH"
 export PKG_CONFIG_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
 
-#give environment to later buildpacks
+# give environment to later buildpacks
 export | grep -E -e ' (LD_LIBRARY_PATH|LIBRARY_PATH|INCLUDE_PATH|CPATH|CPPPATH|PKG_CONFIG_PATH)='  > "$LP_DIR/export"
 
 topic "Rewrite package-config files"
