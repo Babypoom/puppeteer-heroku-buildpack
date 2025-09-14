@@ -131,23 +131,43 @@ esac
 APT_OPTIONS="-o debug::nolocking=true -o dir::cache=$APT_CACHE_DIR -o dir::state=$APT_STATE_DIR"
 APT_FLAGS="--allow-downgrades --allow-remove-essential --allow-change-held-packages"
 
-# --- Nettoyage des sources APT problématiques (ex: apt.postgresql.org) ---
-topic "Cleaning up problematic APT sources (apt.postgresql.org)"
-rm -f /etc/apt/sources.list.d/pgdg.list 2>/dev/null || true
-sed -i '/apt\.postgresql\.org/d' /etc/apt/sources.list 2>/dev/null || true
-if [ -d /etc/apt/sources.list.d ]; then
-  for f in /etc/apt/sources.list.d/*.list; do
-    [ -f "$f" ] && sed -i '/apt\.postgresql\.org/d' "$f" || true
-  done
-fi
+# --- Use a custom sources.list to ignore system sources (kills apt.postgresql.org) ---
+CUSTOM_SOURCES="$APT_STATE_DIR/custom-sources.list"
+case "${STACK}" in
+  "heroku-20")
+    # focal
+    cat > "$CUSTOM_SOURCES" <<'EOF'
+deb http://archive.ubuntu.com/ubuntu focal main universe
+deb http://archive.ubuntu.com/ubuntu focal-updates main universe
+deb http://archive.ubuntu.com/ubuntu focal-security main universe
+EOF
+    ;;
+  "heroku-22")
+    # jammy
+    cat > "$CUSTOM_SOURCES" <<'EOF'
+deb http://archive.ubuntu.com/ubuntu jammy main universe
+deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
+deb http://archive.ubuntu.com/ubuntu jammy-security main universe
+EOF
+    ;;
+  "heroku-24")
+    # noble
+    cat > "$CUSTOM_SOURCES" <<'EOF'
+deb http://archive.ubuntu.com/ubuntu noble main universe
+deb http://archive.ubuntu.com/ubuntu noble-updates main universe
+deb http://archive.ubuntu.com/ubuntu noble-security main universe
+EOF
+    ;;
+  *)
+    error "STACK must be 'heroku-20', 'heroku-22' or 'heroku-24', not '${STACK}'."
+    ;;
+esac
 
-# --- Mise à jour skippable du cache APT ---
-if [ "${PUPPETEER_SKIP_APT_UPDATE:-}" = "1" ]; then
-  topic "Skipping apt cache update (PUPPETEER_SKIP_APT_UPDATE=1)"
-else
-  topic "Updating apt caches"
-  apt-get $APT_OPTIONS update | indent
-fi
+# Override apt to use ONLY our custom sources file and no sourceparts
+APT_OPTIONS="$APT_OPTIONS -o Dir::Etc::sourcelist=$CUSTOM_SOURCES -o Dir::Etc::sourceparts=/dev/null"
+
+topic "Updating apt caches"
+apt-get $APT_OPTIONS update | indent
 
 for PACKAGE in $PACKAGES; do
   if [[ $PACKAGE == *deb ]]; then
